@@ -1,3 +1,4 @@
+use dotenv::dotenv;
 use hyper::body::Bytes;
 use lazy_static::lazy_static;
 use std::{collections::HashMap, convert::TryInto};
@@ -21,7 +22,8 @@ use std::{
     self, 
     error::Error, 
     fs::File, 
-    io::prelude::*
+    io::prelude::*,
+    env
 };
 
 use songbird::{
@@ -106,7 +108,7 @@ lazy_static! {
         m.insert("wizard".to_string(), "wizard".to_string());
         m.insert("yugi".to_string(), "yami-yugi".to_string());
         m.insert("zuckerberg".to_string(), "mark-zuckerberg".to_string());
-        
+
         m
     };
 }
@@ -120,13 +122,25 @@ struct Handler;
 impl EventHandler for Handler { }
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    dotenv().ok();
+    let token = {
+        let mut token = String::new();
+        for (key, value) in env::vars() {
+            if key == "DISCORD_TOKEN" {
+                token = value;
+            }
+        }
+
+        token
+    };
+    
     let framework = StandardFramework::new()
         .configure(|c| c.prefix("tts_")) // set the bot's prefix to "tts_"
         .group(&GENERAL_GROUP);
 
     // Login with a bot token from the environment
 
-    let mut client = Client::builder("NzgxMTMzMDE5MDY2MjY5NzU2.X75M0A.2_S7G_43Rr_zCNQWgc8rvUfHgYk")
+    let mut client = Client::builder(token)
         .event_handler(Handler)
         .framework(framework)
         .register_songbird()

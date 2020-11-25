@@ -8,6 +8,7 @@ edition = "2018"
 
 [dependencies]
 uuid = { version = "0.8", features = ["serde", "v4"] }
+dotenv = "*"
 serde_json = "*"
 hyper = "*"
 lazy_static = "1.4.0"
