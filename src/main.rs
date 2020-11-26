@@ -1,38 +1,28 @@
 use dotenv::dotenv;
 use hyper::body::Bytes;
 use lazy_static::lazy_static;
-use std::{collections::HashMap, convert::TryInto};
+use std::{collections::HashMap, convert::TryInto, ffi::OsStr, fs};
 
 use serenity::{
     async_trait,
     client::{Client, Context, EventHandler},
     framework::{
-        StandardFramework,
         standard::{
-            Args, CommandResult,
             macros::{command, group},
+            Args, CommandResult,
         },
+        StandardFramework,
     },
     model::channel::Message,
     Result as SerenityResult,
 };
 
 use hyper::{body, Body, Client as HyperClient, Method, Request};
-use std::{
-    self, 
-    error::Error, 
-    fs::File, 
-    io::prelude::*,
-    env
-};
+use std::{self, env, error::Error, fs::File, io::prelude::*};
 
 use songbird::{
-    input::{
-        self,
-        cached::Memory,
-    },
+    input::{self, cached::Memory},
     SerenityInit,
-
 };
 
 lazy_static! {
@@ -114,12 +104,12 @@ lazy_static! {
 }
 
 #[group]
-#[commands(join, say, leave)]
+#[commands(join, say, leave, clear)]
 struct General;
 struct Handler;
 
 #[async_trait]
-impl EventHandler for Handler { }
+impl EventHandler for Handler {}
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     dotenv().ok();
@@ -133,7 +123,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
         token
     };
-    
+
     let framework = StandardFramework::new()
         .configure(|c| c.prefix("tts_")) // set the bot's prefix to "tts_"
         .group(&GENERAL_GROUP);
@@ -162,7 +152,8 @@ async fn join(ctx: &Context, msg: &Message) -> CommandResult {
     let guild_id = guild.id;
 
     let channel_id = guild
-        .voice_states.get(&msg.author.id)
+        .voice_states
+        .get(&msg.author.id)
         .and_then(|voice_state| voice_state.channel_id);
 
     let connect_to = match channel_id {
@@ -174,10 +165,26 @@ async fn join(ctx: &Context, msg: &Message) -> CommandResult {
         }
     };
 
-    let manager = songbird::get(ctx).await
-        .expect("Songbird Voice client placed in at initialisation.").clone();
+    let manager = songbird::get(ctx)
+        .await
+        .expect("Songbird Voice client placed in at initialisation.")
+        .clone();
 
     let _handler = manager.join(guild_id, connect_to).await;
+
+    Ok(())
+}
+
+#[command]
+async fn clear(ctx: &Context, msg: &Message) -> CommandResult {
+    for path in fs::read_dir("./")?
+        .filter(|p| p.is_ok())
+        .map(|p| p.unwrap())
+        .filter(|p| p.path().extension() == Some(OsStr::new("wav")))
+    {
+        fs::remove_file(path.path())?;
+    }
+    check_msg(msg.reply(ctx, "All wav files deleted").await);
 
     Ok(())
 }
@@ -188,13 +195,19 @@ async fn leave(ctx: &Context, msg: &Message) -> CommandResult {
     let guild = msg.guild(&ctx.cache).await.unwrap();
     let guild_id = guild.id;
 
-    let manager = songbird::get(ctx).await
-        .expect("Songbird Voice client placed in at initialisation.").clone();
+    let manager = songbird::get(ctx)
+        .await
+        .expect("Songbird Voice client placed in at initialisation.")
+        .clone();
     let has_handler = manager.get(guild_id).is_some();
 
     if has_handler {
         if let Err(e) = manager.remove(guild_id).await {
-            check_msg(msg.channel_id.say(&ctx.http, format!("Failed: {:?}", e)).await);
+            check_msg(
+                msg.channel_id
+                    .say(&ctx.http, format!("Failed: {:?}", e))
+                    .await,
+            );
         }
 
         check_msg(msg.channel_id.say(&ctx.http, "Left voice channel").await);
@@ -232,7 +245,8 @@ async fn say(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
                 input::ffmpeg(filename.clone())
                     .await
                     .expect("File should be in root folder."),
-                ).expect("These parameters are well-defined.");
+            )
+            .expect("These parameters are well-defined.");
             let _ = audio.raw.spawn_loader();
 
             let song = handler.play_source(audio.try_into().unwrap());
@@ -245,7 +259,7 @@ async fn say(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
             );
         }
 
-        // fs::remove_file(filename)?;
+    // fs::remove_file(filename)?;
     } else {
         check_msg(
             msg.channel_id
@@ -269,11 +283,14 @@ async fn get_wav_file(speaker: &str, text: &str) -> Result<Bytes, Box<dyn Error>
         .uri("http://mumble.stream/speak")
         .header("content-type", "application/json")
         .header("accept", "application/json")
-        .body(Body::from(format!("{{\"speaker\": \"{}\", \"text\": \"{}\"}}", speaker, text)))?;
+        .body(Body::from(format!(
+            "{{\"speaker\": \"{}\", \"text\": \"{}\"}}",
+            speaker, text
+        )))?;
 
     let client = HyperClient::new();
     let res = client.request(req).await?;
     let body_bytes = body::to_bytes(res.into_body()).await?;
 
     Ok(body_bytes)
-} 
+}
