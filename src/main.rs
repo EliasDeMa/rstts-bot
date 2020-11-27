@@ -1,21 +1,16 @@
+use tokio::sync::RwLock;
 use dotenv::dotenv;
 use hyper::body::Bytes;
 use lazy_static::lazy_static;
-use std::{collections::HashMap, ffi::OsStr, convert::TryInto, fs};
+use std::{collections::{HashMap, HashSet}, convert::TryInto, ffi::OsStr, fs, sync::Arc};
 
-use serenity::{
-    async_trait,
-    client::{Client, Context, EventHandler},
-    framework::{
+use serenity::{Result as SerenityResult, async_trait, client::{Client, Context, EventHandler}, framework::standard::CommandError, framework::{
         StandardFramework,
         standard::{
             Args, CommandResult,
-            macros::{command, group},
+            macros::{command, group, hook},
         },
-    },
-    model::channel::Message,
-    Result as SerenityResult,
-};
+    }, model::{channel::Message, id::UserId}, prelude::*};
 
 use hyper::{body, Body, Client as HyperClient, Method, Request};
 use std::{
@@ -114,12 +109,18 @@ lazy_static! {
 }
 
 #[group]
-#[commands(join, say, leave, clear)]
+#[commands(join, say, leave)]
 struct General;
 struct Handler;
 
 #[async_trait]
 impl EventHandler for Handler { }
+
+struct FileLock;
+
+impl TypeMapKey for FileLock {
+    type Value = Arc<Mutex<HashMap<UserId, String>>>;
+}
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     dotenv().ok();
@@ -135,7 +136,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
     
     let framework = StandardFramework::new()
-        .configure(|c| c.prefix("tts_")) // set the bot's prefix to "tts_"
+        .configure(|c| c.prefix("tts_"))
+        .after(clear) // set the bot's prefix to "tts_"
         .group(&GENERAL_GROUP);
 
     // Login with a bot token from the environment
@@ -146,6 +148,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .register_songbird()
         .await
         .expect("Error creating client");
+
+    {
+
+        let mut data = client.data.write().await;
+        
+        // The CommandCounter Value has the following type:
+        // Arc<RwLock<HashMap<String, u64>>>
+        // So, we have to insert the same type to it.
+        data.insert::<FileLock>(Arc::new(Mutex::new(HashMap::new())));
+        
+    }
 
     // start listening for events by starting a single shard
     if let Err(why) = client.start().await {
@@ -182,17 +195,22 @@ async fn join(ctx: &Context, msg: &Message) -> CommandResult {
     Ok(())
 }
 
-#[command]
-async fn clear(ctx: &Context, msg: &Message) -> CommandResult {
-    for path in fs::read_dir("./")?
-        .filter(|p| p.is_ok())
-        .map(|p | p.unwrap())
-        .filter(|p| p.path().extension() == Some(OsStr::new("wav"))) {
-            fs::remove_file(path.path())?;
-    }
-    check_msg(msg.reply(ctx, "All wav files deleted").await);
+#[hook]
+async fn clear(ctx: &Context, msg: &Message, cmd_name: &str, _error: Result<(), CommandError>) {
+    if cmd_name == "say" {
+        let sources_lock = ctx.data
+            .read()
+            .await
+            .get::<FileLock>()
+            .cloned()
+            .expect("FileLock was installed at startup");
 
-    Ok(())
+        let mut sources = sources_lock.lock().await;
+        let file_name = sources.get(&msg.author.id).unwrap();
+        
+        fs::remove_file(file_name).unwrap();
+        sources.remove(&msg.author.id);
+    }
 }
 
 #[command]
@@ -221,25 +239,34 @@ async fn leave(ctx: &Context, msg: &Message) -> CommandResult {
 #[command]
 #[only_in(guilds)]
 async fn say(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
-    let name = args.single::<String>()?;
-    let sentence = args.rest();
+    let guild = msg.guild(&ctx.cache).await.unwrap();
+    let guild_id = guild.id;
     let filename = format!("{}.wav", uuid::Uuid::new_v4().to_string());
- 
-    if let Some(passing_name) = VOICES.get(&name) {
-        let audio = get_wav_file(passing_name, sentence).await.unwrap();
-        let mut buffer = File::create(filename.clone())?;
-        buffer.write_all(&audio)?;
 
-        let guild = msg.guild(&ctx.cache).await.unwrap();
-        let guild_id = guild.id;
+    let manager = songbird::get(ctx)
+        .await
+        .expect("Songbird Voice client placed in at initialisation.")
+        .clone();
 
-        let manager = songbird::get(ctx)
+    if let Some(handler_lock) = manager.get(guild_id) {
+        let mut handler = handler_lock.lock().await;
+
+        let sources_lock = ctx.data
+            .read()
             .await
-            .expect("Songbird Voice client placed in at initialisation.")
-            .clone();
+            .get::<FileLock>()
+            .cloned()
+            .expect("FileLock was installed at startup");
 
-        if let Some(handler_lock) = manager.get(guild_id) {
-            let mut handler = handler_lock.lock().await;
+        let mut sources = sources_lock.lock().await;
+        sources.insert(msg.author.id, filename.clone());
+        let name = args.single::<String>()?;
+        let sentence = args.rest();
+
+        if let Some(passing_name) = VOICES.get(&name) {
+            let audio = get_wav_file(passing_name, sentence).await.unwrap();
+            let mut buffer = File::create(filename.clone())?;
+            buffer.write_all(&audio)?;
 
             let audio = Memory::new(
                 input::ffmpeg(filename.clone())
@@ -247,22 +274,20 @@ async fn say(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
                     .expect("File should be in root folder."),
                 ).expect("These parameters are well-defined.");
             let _ = audio.raw.spawn_loader();
-
-            let song = handler.play_source(audio.try_into().unwrap());
-            let _ = song.set_volume(1.0);
+            
+            let _song = handler.play_source(audio.try_into().unwrap());
+            check_msg(msg.channel_id.say(&ctx.http, "Playing!").await);
         } else {
             check_msg(
                 msg.channel_id
-                    .say(&ctx.http, "Not in a voice channel to play in")
+                    .say(&ctx.http, format!("{} is not an eligible voice.", name))
                     .await,
             );
         }
-
-        // fs::remove_file(filename)?;
     } else {
         check_msg(
             msg.channel_id
-                .say(&ctx.http, format!("{} is not an eligible voice.", name))
+                .say(&ctx.http, "Not in a voice channel to play in")
                 .await,
         );
     }
