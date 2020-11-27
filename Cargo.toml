@@ -8,6 +8,7 @@ edition = "2018"
 
 [dependencies]
 tempfile = "*"
+once_cell = "*"
 uuid = { version = "0.8", features = ["serde", "v4"] }
 dotenv = "*"
 serde_json = "*"

@@ -1,8 +1,7 @@
-use tokio::sync::RwLock;
 use dotenv::dotenv;
 use hyper::body::Bytes;
-use lazy_static::lazy_static;
-use std::{collections::{HashMap, HashSet}, convert::TryInto, ffi::OsStr, fs, sync::Arc};
+use once_cell::sync::Lazy;
+use std::{collections::HashMap, convert::TryInto, fs, sync::Arc};
 
 use serenity::{Result as SerenityResult, async_trait, client::{Client, Context, EventHandler}, framework::standard::CommandError, framework::{
         StandardFramework,
@@ -30,83 +29,83 @@ use songbird::{
 
 };
 
-lazy_static! {
-    static ref VOICES: HashMap<String, String> = {
-        let mut m = HashMap::new();
-        m.insert("altman".to_string(), "sam-altman".to_string());
-        m.insert("arnold".to_string(), "arnold-schwarzenegger".to_string());
-        m.insert("attenborough".to_string(), "david-attenborough".to_string());
-        m.insert("ayoade".to_string(), "richard-ayoade".to_string());
-        m.insert("bart".to_string(), "bart-simpson".to_string());
-        m.insert("ben_stein".to_string(), "ben-stein".to_string());
-        m.insert("betty_white".to_string(), "betty-white".to_string());
-        m.insert("bill_clinton".to_string(), "bill-clinton".to_string());
-        m.insert("bill_gates".to_string(), "bill-gates".to_string());
-        m.insert("bill_nye".to_string(), "bill-nye".to_string());
-        m.insert("bob_barker".to_string(), "bob-barker".to_string());
-        m.insert("boss".to_string(), "the-boss".to_string());
-        m.insert("brimley".to_string(), "wilford-brimley".to_string());
-        m.insert("broomstick".to_string(), "boomstick".to_string());
-        m.insert("bush".to_string(), "george-w-bush".to_string());
-        m.insert("carter".to_string(), "jimmy-carter".to_string());
-        m.insert("christopher_lee".to_string(), "christopher-lee".to_string());
-        m.insert("cooper".to_string(), "anderson-cooper".to_string());
-        m.insert("craig_ferguson".to_string(), "craig-ferguson".to_string());
-        m.insert("cramer".to_string(), "jim-cramer".to_string());
-        m.insert("cranston".to_string(), "bryan-cranston".to_string());
-        m.insert("crypt_keeper".to_string(), "crypt-keeper".to_string());
-        m.insert("darth".to_string(), "darth-vader".to_string());
-        m.insert("david_cross".to_string(), "david-cross".to_string());
-        m.insert("degrasse".to_string(), "neil-degrasse-tyson".to_string());
-        m.insert("dench".to_string(), "judi-dench".to_string());
-        m.insert("devito".to_string(), "danny-devito".to_string());
-        m.insert("dr_phil".to_string(), "dr-phil-mcgraw".to_string());
-        m.insert("earl_jones".to_string(), "james-earl-jones".to_string());
-        m.insert("fred_rogers".to_string(), "fred-rogers".to_string());
-        m.insert("gottfried".to_string(), "gilbert-gottfried".to_string());
-        m.insert("hillary_clinton".to_string(), "hillary-clinton".to_string());
-        m.insert("homer".to_string(), "homer-simpson".to_string());
-        m.insert("krabs".to_string(), "mr-krabs".to_string());
-        m.insert("larry_king".to_string(), "larry-king".to_string());
-        m.insert("lisa".to_string(), "lisa-simpson".to_string());
-        m.insert("luckey".to_string(), "palmer-luckey".to_string());
-        m.insert("mcconnell".to_string(), "mitch-mcconnell".to_string());
-        m.insert("nimoy".to_string(), "leonard-nimoy".to_string());
-        m.insert("nixon".to_string(), "richard-nixon".to_string());
-        m.insert("obama".to_string(), "barack-obama".to_string());
-        m.insert("oliver".to_string(), "john-oliver".to_string());
-        m.insert("palin".to_string(), "sarah-palin".to_string());
-        m.insert("paul_graham".to_string(), "paul-graham".to_string());
-        m.insert("paula_deen".to_string(), "paula-deen".to_string());
-        m.insert("penguinz0".to_string(), "moistcr1tikal".to_string());
-        m.insert("reagan".to_string(), "ronald-reagan".to_string());
-        m.insert("rickman".to_string(), "alan-rickman".to_string());
-        m.insert("rosen".to_string(), "michael-rosen".to_string());
-        m.insert("saruman".to_string(), "saruman".to_string());
-        m.insert("scout".to_string(), "scout".to_string());
-        m.insert("shapiro".to_string(), "ben-shapiro".to_string());
-        m.insert("shohreh".to_string(), "shohreh-aghdashloo".to_string());
-        m.insert("simmons".to_string(), "j-k-simmons".to_string());
-        m.insert("snake".to_string(), "solid-snake".to_string());
-        m.insert("snape".to_string(), "severus-snape".to_string());
-        m.insert("sonic".to_string(), "sonic".to_string());
-        m.insert("spongebob".to_string(), "spongebob-squarepants".to_string());
-        m.insert("squidward".to_string(), "squidward".to_string());
-        m.insert("takei".to_string(), "george-takei".to_string());
-        m.insert("thiel".to_string(), "peter-thiel".to_string());
-        m.insert("trevor".to_string(), "trevor-philips".to_string());
-        m.insert("trump".to_string(), "donald-trump".to_string());
-        m.insert("tucker".to_string(), "tucker-carlson".to_string());
-        m.insert("tupac".to_string(), "tupac-shakur".to_string());
-        m.insert("vegeta".to_string(), "vegeta".to_string());
-        m.insert("wiseau".to_string(), "tommy-wiseau".to_string());
-        m.insert("wizard".to_string(), "wizard".to_string());
-        m.insert("yugi".to_string(), "yami-yugi".to_string());
-        m.insert("zuckerberg".to_string(), "mark-zuckerberg".to_string());
 
-        m
-    };
-}
+static  VOICES: Lazy<HashMap<String, String>> = Lazy::new(|| {
+    let mut m = HashMap::new();
+    m.insert("altman".to_string(), "sam-altman".to_string());
+    m.insert("arnold".to_string(), "arnold-schwarzenegger".to_string());
+    m.insert("attenborough".to_string(), "david-attenborough".to_string());
+    m.insert("ayoade".to_string(), "richard-ayoade".to_string());
+    m.insert("bart".to_string(), "bart-simpson".to_string());
+    m.insert("ben_stein".to_string(), "ben-stein".to_string());
+    m.insert("betty_white".to_string(), "betty-white".to_string());
+    m.insert("bill_clinton".to_string(), "bill-clinton".to_string());
+    m.insert("bill_gates".to_string(), "bill-gates".to_string());
+    m.insert("bill_nye".to_string(), "bill-nye".to_string());
+    m.insert("bob_barker".to_string(), "bob-barker".to_string());
+    m.insert("boss".to_string(), "the-boss".to_string());
+    m.insert("brimley".to_string(), "wilford-brimley".to_string());
+    m.insert("broomstick".to_string(), "boomstick".to_string());
+    m.insert("bush".to_string(), "george-w-bush".to_string());
+    m.insert("carter".to_string(), "jimmy-carter".to_string());
+    m.insert("christopher_lee".to_string(), "christopher-lee".to_string());
+    m.insert("cooper".to_string(), "anderson-cooper".to_string());
+    m.insert("craig_ferguson".to_string(), "craig-ferguson".to_string());
+    m.insert("cramer".to_string(), "jim-cramer".to_string());
+    m.insert("cranston".to_string(), "bryan-cranston".to_string());
+    m.insert("crypt_keeper".to_string(), "crypt-keeper".to_string());
+    m.insert("darth".to_string(), "darth-vader".to_string());
+    m.insert("david_cross".to_string(), "david-cross".to_string());
+    m.insert("degrasse".to_string(), "neil-degrasse-tyson".to_string());
+    m.insert("dench".to_string(), "judi-dench".to_string());
+    m.insert("devito".to_string(), "danny-devito".to_string());
+    m.insert("dr_phil".to_string(), "dr-phil-mcgraw".to_string());
+    m.insert("earl_jones".to_string(), "james-earl-jones".to_string());
+    m.insert("fred_rogers".to_string(), "fred-rogers".to_string());
+    m.insert("gottfried".to_string(), "gilbert-gottfried".to_string());
+    m.insert("hillary_clinton".to_string(), "hillary-clinton".to_string());
+    m.insert("homer".to_string(), "homer-simpson".to_string());
+    m.insert("krabs".to_string(), "mr-krabs".to_string());
+    m.insert("larry_king".to_string(), "larry-king".to_string());
+    m.insert("lisa".to_string(), "lisa-simpson".to_string());
+    m.insert("luckey".to_string(), "palmer-luckey".to_string());
+    m.insert("mcconnell".to_string(), "mitch-mcconnell".to_string());
+    m.insert("nimoy".to_string(), "leonard-nimoy".to_string());
+    m.insert("nixon".to_string(), "richard-nixon".to_string());
+    m.insert("obama".to_string(), "barack-obama".to_string());
+    m.insert("oliver".to_string(), "john-oliver".to_string());
+    m.insert("palin".to_string(), "sarah-palin".to_string());
+    m.insert("paul_graham".to_string(), "paul-graham".to_string());
+    m.insert("paula_deen".to_string(), "paula-deen".to_string());
+    m.insert("penguinz0".to_string(), "moistcr1tikal".to_string());
+    m.insert("reagan".to_string(), "ronald-reagan".to_string());
+    m.insert("rickman".to_string(), "alan-rickman".to_string());
+    m.insert("rosen".to_string(), "michael-rosen".to_string());
+    m.insert("saruman".to_string(), "saruman".to_string());
+    m.insert("scout".to_string(), "scout".to_string());
+    m.insert("shapiro".to_string(), "ben-shapiro".to_string());
+    m.insert("shohreh".to_string(), "shohreh-aghdashloo".to_string());
+    m.insert("simmons".to_string(), "j-k-simmons".to_string());
+    m.insert("snake".to_string(), "solid-snake".to_string());
+    m.insert("snape".to_string(), "severus-snape".to_string());
+    m.insert("sonic".to_string(), "sonic".to_string());
+    m.insert("spongebob".to_string(), "spongebob-squarepants".to_string());
+    m.insert("squidward".to_string(), "squidward".to_string());
+    m.insert("takei".to_string(), "george-takei".to_string());
+    m.insert("thiel".to_string(), "peter-thiel".to_string());
+    m.insert("trevor".to_string(), "trevor-philips".to_string());
+    m.insert("trump".to_string(), "donald-trump".to_string());
+    m.insert("tucker".to_string(), "tucker-carlson".to_string());
+    m.insert("tupac".to_string(), "tupac-shakur".to_string());
+    m.insert("vegeta".to_string(), "vegeta".to_string());
+    m.insert("wiseau".to_string(), "tommy-wiseau".to_string());
+    m.insert("wizard".to_string(), "wizard".to_string());
+    m.insert("yugi".to_string(), "yami-yugi".to_string());
+    m.insert("zuckerberg".to_string(), "mark-zuckerberg".to_string());
+
+    m
+});
+
 
 #[group]
 #[commands(join, say, leave)]
@@ -121,6 +120,7 @@ struct FileLock;
 impl TypeMapKey for FileLock {
     type Value = Arc<Mutex<HashMap<UserId, String>>>;
 }
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     dotenv().ok();
@@ -136,8 +136,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
     
     let framework = StandardFramework::new()
-        .configure(|c| c.prefix("tts_"))
-        .after(clear) // set the bot's prefix to "tts_"
+        .configure(|c| c.prefix("tts_")) // set the bot's prefix to "tts_"
+        .after(clear) 
         .group(&GENERAL_GROUP);
 
     // Login with a bot token from the environment
@@ -150,14 +150,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .expect("Error creating client");
 
     {
-
         let mut data = client.data.write().await;
         
-        // The CommandCounter Value has the following type:
-        // Arc<RwLock<HashMap<String, u64>>>
+        // The FileLock Value has the following type:
+        // Arc<RwLock<HashMap<UserId, String>>>
         // So, we have to insert the same type to it.
         data.insert::<FileLock>(Arc::new(Mutex::new(HashMap::new())));
-        
     }
 
     // start listening for events by starting a single shard

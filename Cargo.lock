@@ -1781,6 +1781,7 @@ dependencies = [
  "dotenv",
  "hyper",
  "lazy_static",
+ "once_cell",
  "serde_json",
  "serenity",
  "songbird",
