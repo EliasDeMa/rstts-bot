@@ -3,7 +3,7 @@ use hyper::body::Bytes;
 use once_cell::sync::Lazy;
 use std::{collections::HashMap, convert::TryInto, fs, sync::Arc};
 
-use serenity::{Result as SerenityResult, async_trait, client::{Client, Context, EventHandler}, framework::standard::CommandError, framework::{
+use serenity::{Result as SerenityResult, async_trait, client::{Client, Context, EventHandler}, framework::standard::CommandError, utils::MessageBuilder, framework::{
         StandardFramework,
         standard::{
             Args, CommandResult,
@@ -26,11 +26,9 @@ use songbird::{
         cached::Memory,
     },
     SerenityInit,
-
 };
 
-
-static  VOICES: Lazy<HashMap<String, String>> = Lazy::new(|| {
+static VOICES: Lazy<HashMap<String, String>> = Lazy::new(|| {
     let mut m = HashMap::new();
     m.insert("altman".to_string(), "sam-altman".to_string());
     m.insert("arnold".to_string(), "arnold-schwarzenegger".to_string());
@@ -106,9 +104,8 @@ static  VOICES: Lazy<HashMap<String, String>> = Lazy::new(|| {
     m
 });
 
-
 #[group]
-#[commands(join, say, leave)]
+#[commands(join, say, leave, voices)]
 struct General;
 struct Handler;
 
@@ -189,6 +186,26 @@ async fn join(ctx: &Context, msg: &Message) -> CommandResult {
         .expect("Songbird Voice client placed in at initialisation.").clone();
 
     let _handler = manager.join(guild_id, connect_to).await;
+
+    Ok(())
+}
+
+#[command]
+async fn voices(ctx: &Context, msg: &Message) -> CommandResult {
+    let mut voices = String::new();
+
+    for (k, v) in VOICES.iter() {
+        voices += &format!("{}:   {}\n", k, v);
+    }
+
+    let response = MessageBuilder::new()
+        .push_bold_line("The available voices and their keywords are:")
+        .push(voices)
+        .build();
+
+    if let Err(why) = msg.channel_id.say(&ctx.http, &response).await {
+        println!("Error sending message: {:?}", why);
+    }
 
     Ok(())
 }
