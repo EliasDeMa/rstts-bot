@@ -1,7 +1,9 @@
 use dotenv::dotenv;
-use hyper::body::Bytes;
+use hyper::{body::Bytes, StatusCode};
+use image::Rgb;
 use once_cell::sync::Lazy;
-use std::{collections::HashMap, convert::TryInto, fs, sync::Arc};
+use sus::sus1;
+use std::{collections::HashMap, convert::TryInto, error::Error, fs::{self, File}, sync::Arc};
 
 use serenity::{Result as SerenityResult, async_trait, client::{Client, Context, EventHandler}, framework::standard::CommandError, utils::MessageBuilder, framework::{
         StandardFramework,
@@ -14,11 +16,10 @@ use serenity::{Result as SerenityResult, async_trait, client::{Client, Context, 
 use hyper::{body, Body, Client as HyperClient, Method, Request};
 use std::{
     self, 
-    error::Error, 
-    fs::File, 
     io::prelude::*,
     env
 };
+use uwuifier::uwuify_str_sse;
 
 use songbird::{
     input::{
@@ -27,6 +28,12 @@ use songbird::{
     },
     SerenityInit,
 };
+
+
+mod sus;
+
+const C: Rgb<u8> = Rgb([197, 17, 17]);
+const C2: Rgb<u8> = Rgb([122, 8, 56]);
 
 static VOICES: Lazy<HashMap<String, String>> = Lazy::new(|| {
     let mut m = HashMap::new();
@@ -52,7 +59,7 @@ static VOICES: Lazy<HashMap<String, String>> = Lazy::new(|| {
     m.insert("cramer".to_string(), "jim-cramer".to_string());
     m.insert("cranston".to_string(), "bryan-cranston".to_string());
     m.insert("crypt_keeper".to_string(), "crypt-keeper".to_string());
-    m.insert("darth".to_string(), "darth-vader".to_string());
+    m.insert("darth_vader".to_string(), "james-earl-jones".to_string());
     m.insert("david_cross".to_string(), "david-cross".to_string());
     m.insert("degrasse".to_string(), "neil-degrasse-tyson".to_string());
     m.insert("dench".to_string(), "judi-dench".to_string());
@@ -61,6 +68,7 @@ static VOICES: Lazy<HashMap<String, String>> = Lazy::new(|| {
     m.insert("earl_jones".to_string(), "james-earl-jones".to_string());
     m.insert("fred_rogers".to_string(), "fred-rogers".to_string());
     m.insert("gottfried".to_string(), "gilbert-gottfried".to_string());
+    m.insert("goku".to_string(), "goku".to_string());
     m.insert("hillary_clinton".to_string(), "hillary-clinton".to_string());
     m.insert("homer".to_string(), "homer-simpson".to_string());
     m.insert("krabs".to_string(), "mr-krabs".to_string());
@@ -79,7 +87,7 @@ static VOICES: Lazy<HashMap<String, String>> = Lazy::new(|| {
     m.insert("reagan".to_string(), "ronald-reagan".to_string());
     m.insert("rickman".to_string(), "alan-rickman".to_string());
     m.insert("rosen".to_string(), "michael-rosen".to_string());
-    m.insert("saruman".to_string(), "saruman".to_string());
+    m.insert("saruman".to_string(), "christopher-lee".to_string());
     m.insert("scout".to_string(), "scout".to_string());
     m.insert("shapiro".to_string(), "ben-shapiro".to_string());
     m.insert("shohreh".to_string(), "shohreh-aghdashloo".to_string());
@@ -105,7 +113,7 @@ static VOICES: Lazy<HashMap<String, String>> = Lazy::new(|| {
 });
 
 #[group]
-#[commands(join, say, leave, voices)]
+#[commands(join, say, leave, voices, uwu, sus)]
 struct General;
 struct Handler;
 
@@ -138,7 +146,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .group(&GENERAL_GROUP);
 
     // Login with a bot token from the environment
-
     let mut client = Client::builder(token)
         .event_handler(Handler)
         .framework(framework)
@@ -191,6 +198,29 @@ async fn join(ctx: &Context, msg: &Message) -> CommandResult {
 }
 
 #[command]
+async fn sus(ctx: &Context, msg: &Message) -> CommandResult {
+    if let Some(file) = msg.attachments.first() {
+        let name = file.filename.clone();
+        let downloaded = file.download().await?;
+        let mut file = File::create(&name).unwrap();
+
+        file.write_all(&downloaded).unwrap();
+        let gif = sus1(&name).unwrap();
+
+        let files = vec![gif.as_str()];
+
+        msg.channel_id.send_files(ctx, files, |m| m.content("created gif")).await?;
+        fs::remove_file(&name);
+        fs::remove_file(&gif);
+            
+    } else {
+        check_msg(msg.channel_id.say(ctx, "Please give a file").await);
+    }
+    
+    Ok(())
+}
+
+#[command]
 async fn voices(ctx: &Context, msg: &Message) -> CommandResult {
     let mut voices = String::new();
 
@@ -221,11 +251,25 @@ async fn clear(ctx: &Context, msg: &Message, cmd_name: &str, _error: Result<(), 
             .expect("FileLock was installed at startup");
 
         let mut sources = sources_lock.lock().await;
-        let file_name = sources.get(&msg.author.id).unwrap();
         
-        fs::remove_file(file_name).unwrap();
-        sources.remove(&msg.author.id);
+        if let Some(file_name) = sources.get(&msg.author.id) { 
+            match fs::remove_file(file_name) {
+                Ok(_) => {
+                    sources.remove(&msg.author.id);
+                },
+                Err(_) => {
+                    sources.remove(&msg.author.id);
+                }
+            }              
+        }     
     }
+}
+
+#[command]
+async fn uwu(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
+    check_msg(msg.channel_id.say(ctx, uwuify_str_sse(args.rest())).await);
+    
+    Ok(())
 }
 
 #[command]
@@ -279,19 +323,26 @@ async fn say(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
         let sentence = args.rest();
 
         if let Some(passing_name) = VOICES.get(&name) {
-            let audio = get_wav_file(passing_name, sentence).await.unwrap();
-            let mut buffer = File::create(filename.clone())?;
-            buffer.write_all(&audio)?;
-
-            let audio = Memory::new(
-                input::ffmpeg(filename.clone())
-                    .await
-                    .expect("File should be in root folder."),
-                ).expect("These parameters are well-defined.");
-            let _ = audio.raw.spawn_loader();
+            let (code, audio) = get_wav_file(passing_name, sentence).await.unwrap();
             
-            let _song = handler.play_source(audio.try_into().unwrap());
-            check_msg(msg.channel_id.say(&ctx.http, "Playing!").await);
+            if code == StatusCode::OK {
+                let mut buffer = File::create(filename.clone())?;
+                buffer.write_all(&audio)?;
+
+                let audio = Memory::new(
+                    input::ffmpeg(filename.clone())
+                        .await
+                        .expect("File should be in root folder."),
+                    ).expect("These parameters are well-defined.");
+                let _ = audio.raw.spawn_loader();
+                
+                let _song = handler.play_source(audio.try_into().unwrap());
+                check_msg(msg.channel_id.say(&ctx.http, "Playing!").await);
+            } else {
+                println!("{}, via {}", code, name);
+                check_msg(msg.channel_id.say(&ctx.http, "Couldn't retrieve file from server!").await);
+            }
+            
         } else {
             check_msg(
                 msg.channel_id
@@ -316,7 +367,7 @@ fn check_msg(result: SerenityResult<Message>) {
     }
 }
 
-async fn get_wav_file(speaker: &str, text: &str) -> Result<Bytes, Box<dyn Error>> {
+async fn get_wav_file(speaker: &str, text: &str) -> Result<(StatusCode, Bytes), Box<dyn Error>> {
     let req = Request::builder()
         .method(Method::POST)
         .uri("http://mumble.stream/speak")
@@ -326,7 +377,9 @@ async fn get_wav_file(speaker: &str, text: &str) -> Result<Bytes, Box<dyn Error>
 
     let client = HyperClient::new();
     let res = client.request(req).await?;
+    let code = res.status();
     let body_bytes = body::to_bytes(res.into_body()).await?;
 
-    Ok(body_bytes)
+    Ok((code, body_bytes))
 } 
+

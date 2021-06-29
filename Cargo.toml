@@ -14,6 +14,8 @@ serde_json = "*"
 hyper = "*"
 tokio = { version = "0.2.0", features = ["full", "tracing"] }
 songbird = { git = "https://github.com/serenity-rs/songbird", branch = "current" }
+uwuify = "0.2.2"
+image="*"
 
 [dependencies.serenity]
 features = ["client", "standard_framework", "voice", "rustls_backend"]
